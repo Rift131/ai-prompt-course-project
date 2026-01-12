@@ -1,75 +1,414 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Prompt Library</title>
-  <link rel="stylesheet" href="styles.css" />
-</head>
-<body>
-  <header class="app-header">
-    <h1>Prompt Library</h1>
-    <div class="header-tools" role="region" aria-label="Data tools">
-      <button type="button" id="export-btn" class="tool-btn" aria-label="Export prompts">Export</button>
-      <button type="button" id="import-btn" class="tool-btn" aria-label="Import prompts">Import</button>
-      <input type="file" id="import-file" accept="application/json" hidden aria-hidden="true" />
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Prompt Library</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <h1>Ken's Prompt Library</h1>
+        <div class="header-actions">
+          <button id="export-btn" class="action-btn export-btn">
+            Export Data
+          </button>
+          <label for="import-input" class="action-btn import-btn">
+            Import Data
+            <input
+              type="file"
+              id="import-input"
+              accept=".json"
+              style="display: none" />
+          </label>
+        </div>
+      </header>
+
+      <main>
+        <div class="form-section-toggle">
+          <button id="toggle-form-btn" class="action-btn toggle-form-btn">
+            Add New Prompt
+          </button>
+          <button id="add-category-btn" class="action-btn add-category-btn">
+            Add New Category
+          </button>
+        </div>
+        <section class="form-section" id="form-section" hidden>
+          <div class="form-header">
+            <h2>Add New Prompt</h2>
+            <button
+              type="button"
+              id="close-form-btn"
+              class="close-form-btn"
+              aria-label="Close form">
+              ×
+            </button>
+          </div>
+          <form id="prompt-form">
+            <div class="form-group">
+              <label for="prompt-title">Title</label>
+              <input type="text" id="prompt-title" name="title" required />
+            </div>
+            <div class="form-group">
+              <label for="prompt-type">
+                Prompt Type
+                <span class="tooltip-icon" id="prompt-type-info-icon">ℹ️</span>
+              </label>
+              <select id="prompt-type" name="type" required>
+                <option value="">Select a prompt type</option>
+                <option value="Standard" data-tooltip-id="standard-tooltip">
+                  Standard
+                </option>
+                <option value="Zero Shot" data-tooltip-id="zero-shot-tooltip">
+                  Zero Shot
+                </option>
+                <option value="One Shot" data-tooltip-id="one-shot-tooltip">
+                  One Shot
+                </option>
+                <option value="Few Shot" data-tooltip-id="few-shot-tooltip">
+                  Few Shot
+                </option>
+              </select>
+            </div>
+            <div class="form-group" id="content-group" hidden>
+              <div class="content-group-wrapper">
+                <div class="content-input-container">
+                  <label for="prompt-content">Content</label>
+                  <textarea
+                    id="prompt-content"
+                    name="content"
+                    rows="6"
+                    required></textarea>
+                </div>
+                <div id="prompt-type-tooltip" class="tooltip-popup" hidden>
+                  <div class="tooltip-content"></div>
+                  <div class="tooltip-actions">
+                    <label class="tooltip-checkbox-label">
+                      <input type="checkbox" id="tooltip-dont-show-again" />
+                      <span>Do not show this again</span>
+                    </label>
+                    <button
+                      type="button"
+                      id="tooltip-ok-btn"
+                      class="tooltip-ok-btn">
+                      Ok
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="prompt-model">Model Name</label>
+              <input
+                type="text"
+                id="prompt-model"
+                name="model"
+                required
+                placeholder="e.g., Composer 1, Claude-3, etc." />
+            </div>
+            <div class="form-group">
+              <label for="prompt-group">Group</label>
+              <select id="prompt-group" name="group" required>
+                <option value="">Select a group</option>
+                <option value="General">General</option>
+                <option value="Toolbox">Toolbox</option>
+                <option value="Web-React">Web-React</option>
+              </select>
+            </div>
+            <button type="submit" id="save-btn">Save Prompt</button>
+          </form>
+        </section>
+
+        <section class="prompts-section">
+          <div class="prompts-header">
+            <h2>Saved Prompts</h2>
+            <div class="header-controls">
+              <div class="search-container">
+                <input
+                  type="text"
+                  id="search-input"
+                  class="search-input"
+                  placeholder="Search prompts by title or content..."
+                  aria-label="Search prompts" />
+                <button
+                  id="clear-search-btn"
+                  class="clear-search-btn"
+                  aria-label="Clear search"
+                  hidden>
+                  ×
+                </button>
+              </div>
+              <div class="filters-container">
+                <div class="category-filter">
+                  <button
+                    id="category-filter-btn"
+                    class="action-btn category-filter-btn">
+                    Select a Category
+                  </button>
+                  <div id="category-menu" class="category-menu" hidden>
+                    <button class="category-option" data-category="General">
+                      General
+                    </button>
+                    <button class="category-option" data-category="Toolbox">
+                      Toolbox
+                    </button>
+                    <button class="category-option" data-category="Web-React">
+                      Web-React
+                    </button>
+                  </div>
+                </div>
+                <div class="type-filter">
+                  <button
+                    id="type-filter-btn"
+                    class="action-btn type-filter-btn">
+                    Select a Type
+                  </button>
+                  <div id="type-menu" class="type-menu" hidden>
+                    <button class="type-option" data-type="Standard">
+                      Standard
+                    </button>
+                    <button class="type-option" data-type="Zero Shot">
+                      Zero Shot
+                    </button>
+                    <button class="type-option" data-type="One Shot">
+                      One Shot
+                    </button>
+                    <button class="type-option" data-type="Few Shot">
+                      Few Shot
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div id="search-results" class="search-results" hidden></div>
+          <div id="filters-selected" class="filters-selected" hidden>
+            <div
+              id="category-selected"
+              class="filter-badge category-badge"
+              hidden>
+              <span id="selected-category-text"></span>
+              <button
+                id="clear-category-btn"
+                class="clear-filter-btn"
+                aria-label="Clear category filter">
+                ×
+              </button>
+            </div>
+            <div id="type-selected" class="filter-badge type-badge" hidden>
+              <span id="selected-type-text"></span>
+              <button
+                id="clear-type-btn"
+                class="clear-filter-btn"
+                aria-label="Clear type filter">
+                ×
+              </button>
+            </div>
+          </div>
+          <div id="no-filters-selected" class="no-filters-selected">
+            <p>Please select a category and/or type to view prompts.</p>
+          </div>
+          <div id="prompts-list" class="prompts-grid" hidden></div>
+          <div id="empty-state" class="empty-state" hidden>
+            <p>No prompts saved yet. Add your first one!</p>
+          </div>
+        </section>
+      </main>
     </div>
-  </header>
 
-  <main class="layout">
-    <section class="panel" aria-labelledby="form-heading">
-      <h2 id="form-heading" class="panel-title">Add Prompt</h2>
-      <form id="prompt-form" novalidate>
-        <div class="field-group">
-          <label for="prompt-title">Title</label>
-          <input type="text" id="prompt-title" name="title" placeholder="e.g. Blog Idea Generator" maxlength="120" required />
-          <p class="field-hint" id="title-hint">Required. Max 120 characters.</p>
+    <!-- Add Category Modal -->
+    <div id="add-category-modal" class="modal" hidden>
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>Add New Category</h3>
+          <button
+            type="button"
+            id="close-category-modal-btn"
+            class="close-modal-btn"
+            aria-label="Close modal">
+            ×
+          </button>
         </div>
-        <div class="field-group">
-          <label for="model-name">Model</label>
-          <input type="text" id="model-name" name="model" placeholder="e.g. gpt-4o-mini" maxlength="100" required />
-          <p class="field-hint" id="model-hint">Required. Model identifier (max 100 chars).</p>
+        <form id="add-category-form">
+          <div class="form-group">
+            <label for="new-category-name">Category Name</label>
+            <input
+              type="text"
+              id="new-category-name"
+              name="categoryName"
+              required
+              placeholder="Enter category name"
+              maxlength="50" />
+          </div>
+          <div class="modal-buttons">
+            <button type="submit" class="action-btn export-btn">
+              Add Category
+            </button>
+            <button
+              type="button"
+              id="cancel-category-btn"
+              class="action-btn import-btn">
+              Cancel
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Edit Category Modal -->
+    <div id="edit-category-modal" class="modal" hidden>
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>Edit Category</h3>
+          <button
+            type="button"
+            id="close-edit-category-modal-btn"
+            class="close-modal-btn"
+            aria-label="Close modal">
+            ×
+          </button>
         </div>
-        <div class="field-group">
-          <label for="prompt-content">Content</label>
-          <textarea id="prompt-content" name="content" placeholder="Enter the full prompt here..." rows="6" required></textarea>
-          <p class="field-hint" id="content-hint">Required.</p>
+        <form id="edit-category-form">
+          <div class="form-group">
+            <label for="edit-category-name">Category Name</label>
+            <input
+              type="text"
+              id="edit-category-name"
+              name="categoryName"
+              required
+              placeholder="Enter category name"
+              maxlength="50" />
+          </div>
+          <div class="modal-buttons">
+            <button type="submit" class="action-btn export-btn">
+              Save Changes
+            </button>
+            <button
+              type="button"
+              id="cancel-edit-category-btn"
+              class="action-btn import-btn">
+              Cancel
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Transfer/Copy Prompt Modal -->
+    <div id="transfer-copy-modal" class="modal" hidden>
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3 id="transfer-copy-modal-title">Transfer/Copy Prompt</h3>
+          <button
+            type="button"
+            id="close-transfer-copy-modal-btn"
+            class="close-modal-btn"
+            aria-label="Close modal">
+            ×
+          </button>
         </div>
-        <div class="actions">
-          <button type="submit" id="save-btn">Save Prompt</button>
+        <div id="transfer-copy-content">
+          <p id="transfer-copy-message"></p>
+          <div class="form-group">
+            <label for="transfer-copy-action-select">Action:</label>
+            <select
+              id="transfer-copy-action-select"
+              name="transfer-copy-action"
+              required>
+              <option value="">Transfer or Copy?</option>
+              <option value="transfer">Transfer (move to new category)</option>
+              <option value="copy">Copy (duplicate in new category)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Select target category(ies):</label>
+            <div id="transfer-copy-target-categories" class="checkbox-group">
+              <!-- Checkboxes will be populated dynamically -->
+            </div>
+          </div>
+          <div class="modal-buttons">
+            <button
+              type="button"
+              id="confirm-transfer-copy-btn"
+              class="action-btn export-btn"
+              disabled>
+              Confirm
+            </button>
+            <button
+              type="button"
+              id="cancel-transfer-copy-btn"
+              class="action-btn import-btn">
+              Cancel
+            </button>
+          </div>
         </div>
-        <div id="form-error" class="form-error" role="alert" aria-live="polite"></div>
-      </form>
-    </section>
-
-    <section class="panel" aria-labelledby="saved-prompts-heading">
-      <div class="panel-header">
-        <h2 id="saved-prompts-heading" class="panel-title">Saved Prompts</h2>
-        <span id="prompt-count" class="count-badge" aria-live="polite"></span>
       </div>
-      <div id="import-export-messages" class="iemessages" role="alert" aria-live="polite" hidden></div>
-      <div id="prompts-empty" class="empty-state" hidden>
-        <p>No prompts saved yet. Add your first one!</p>
-      </div>
-      <div id="prompts-list" class="cards" aria-live="polite"></div>
-    </section>
-  </main>
+    </div>
 
-  <template id="prompt-card-template">
-    <article class="card" data-id="">
-      <div class="card-main">
-        <h3 class="card-title"></h3>
-        <p class="card-preview"></p>
-        <div class="prompt-meta" data-role="metadata"></div>
+    <!-- Delete Category Modal -->
+    <div id="delete-category-modal" class="modal" hidden>
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>Delete Category</h3>
+          <button
+            type="button"
+            id="close-delete-category-modal-btn"
+            class="close-modal-btn"
+            aria-label="Close modal">
+            ×
+          </button>
+        </div>
+        <div id="delete-category-content">
+          <p id="delete-category-message"></p>
+          <div id="delete-category-options" hidden>
+            <div class="form-group">
+              <label
+                >What would you like to do with the prompts in this
+                category?</label
+              >
+              <div class="delete-options">
+                <label class="radio-option">
+                  <input
+                    type="radio"
+                    name="delete-action"
+                    value="delete"
+                    checked />
+                  <span>Delete all prompts in this category</span>
+                </label>
+                <label class="radio-option">
+                  <input type="radio" name="delete-action" value="move" />
+                  <span>Move prompts to another category</span>
+                </label>
+              </div>
+            </div>
+            <div id="move-category-select" class="form-group" hidden>
+              <label for="move-to-category"
+                >Select category to move prompts to:</label
+              >
+              <select id="move-to-category" name="moveToCategory">
+                <!-- Options will be populated dynamically -->
+              </select>
+            </div>
+          </div>
+          <div class="modal-buttons">
+            <button
+              type="button"
+              id="confirm-delete-category-btn"
+              class="action-btn export-btn">
+              Confirm Delete
+            </button>
+            <button
+              type="button"
+              id="cancel-delete-category-btn"
+              class="action-btn import-btn">
+              Cancel
+            </button>
+          </div>
+        </div>
       </div>
-      <div class="card-actions">
-        <button class="delete-btn" type="button" aria-label="Delete prompt">Delete</button>
-      </div>
-    </article>
-  </template>
+    </div>
 
-  <footer class="app-footer">Local-only storage. Clearing browser data will remove prompts.</footer>
-
-  <script src="script.js"></script>
-</body>
+    <script src="script.js"></script>
+  </body>
 </html>
