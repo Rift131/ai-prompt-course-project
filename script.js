@@ -127,7 +127,7 @@ let promptToExpand = null; // Track which prompt should be expanded after render
  * @returns {boolean} True if supported
  */
 function isFileSystemSupported() {
-  return 'showSaveFilePicker' in window && 'showOpenFilePicker' in window;
+  return "showSaveFilePicker" in window && "showOpenFilePicker" in window;
 }
 
 /**
@@ -135,8 +135,8 @@ function isFileSystemSupported() {
  * @returns {Promise<IDBDatabase>} Database instance
  */
 async function initFileHandleDB() {
-  if (!('indexedDB' in window)) {
-    throw new Error('IndexedDB not supported');
+  if (!("indexedDB" in window)) {
+    throw new Error("IndexedDB not supported");
   }
 
   return new Promise((resolve, reject) => {
@@ -148,10 +148,10 @@ async function initFileHandleDB() {
       resolve(fileHandleDB);
     };
 
-    request.onupgradeneeded = (event) => {
+    request.onupgradeneeded = event => {
       const db = event.target.result;
-      if (!db.objectStoreNames.contains('fileHandles')) {
-        db.createObjectStore('fileHandles');
+      if (!db.objectStoreNames.contains("fileHandles")) {
+        db.createObjectStore("fileHandles");
       }
     };
   });
@@ -167,8 +167,8 @@ async function saveFileHandle(key, handle) {
     if (!fileHandleDB) {
       await initFileHandleDB();
     }
-    const transaction = fileHandleDB.transaction(['fileHandles'], 'readwrite');
-    const store = transaction.objectStore('fileHandles');
+    const transaction = fileHandleDB.transaction(["fileHandles"], "readwrite");
+    const store = transaction.objectStore("fileHandles");
     return new Promise((resolve, reject) => {
       const request = store.put(handle, key);
       request.onsuccess = () => resolve();
@@ -189,8 +189,8 @@ async function loadFileHandle(key) {
     if (!fileHandleDB) {
       await initFileHandleDB();
     }
-    const transaction = fileHandleDB.transaction(['fileHandles'], 'readonly');
-    const store = transaction.objectStore('fileHandles');
+    const transaction = fileHandleDB.transaction(["fileHandles"], "readonly");
+    const store = transaction.objectStore("fileHandles");
     return new Promise((resolve, reject) => {
       const request = store.get(key);
       request.onsuccess = () => resolve(request.result || null);
@@ -208,25 +208,33 @@ async function loadFileHandle(key) {
  */
 async function requestPromptsFileHandle() {
   if (!isFileSystemSupported()) {
-    showNotification("File System Access API is not supported in your browser. Using localStorage instead.", "warning");
+    showNotification(
+      "File System Access API is not supported in your browser. Using localStorage instead.",
+      "warning"
+    );
     return null;
   }
 
   try {
     const handle = await window.showSaveFilePicker({
-      suggestedName: 'prompts.json',
-      types: [{
-        description: 'JSON files',
-        accept: { 'application/json': ['.json'] }
-      }]
+      suggestedName: "prompts.json",
+      types: [
+        {
+          description: "JSON files",
+          accept: { "application/json": [".json"] },
+        },
+      ],
     });
     promptsFileHandle = handle;
-    await saveFileHandle('prompts', handle);
+    await saveFileHandle("prompts", handle);
     return handle;
   } catch (error) {
-    if (error.name !== 'AbortError') {
+    if (error.name !== "AbortError") {
       console.error("Error requesting file handle:", error);
-      showNotification("Failed to select file. Using localStorage instead.", "warning");
+      showNotification(
+        "Failed to select file. Using localStorage instead.",
+        "warning"
+      );
     }
     return null;
   }
@@ -261,7 +269,7 @@ async function writePromptsToFile(handle, prompts) {
     const data = {
       version: "1.0.0",
       exportTimestamp: new Date().toISOString(),
-      prompts: prompts
+      prompts: prompts,
     };
     await writable.write(JSON.stringify(data, null, 2));
     await writable.close();
@@ -278,14 +286,149 @@ async function writePromptsToFile(handle, prompts) {
 async function choosePromptsFileLocation() {
   const handle = await requestPromptsFileHandle();
   if (handle) {
-    showNotification("File location selected! Prompts will now save to your local file.", "success");
+    showNotification(
+      "File location selected! Prompts will now save to your local file.",
+      "success"
+    );
     // Save current prompts to the new file
     const prompts = loadPrompts();
     if (prompts.length > 0) {
       await writePromptsToFile(handle, prompts);
     }
+    // Update button text to show save location
+    updateSaveLocationButtonText(handle);
     // Reload prompts to ensure sync
     renderPrompts();
+  }
+}
+/**
+ * Updates the button text to show the current save location
+ * @param {FileSystemFileHandle} handle - The file handle (optional, uses promptsFileHandle if not provided)
+ */
+function updateSaveLocationButtonText(handle = null) {
+  const button = document.getElementById("choose-file-btn");
+  if (!button) return;
+
+  const fileHandle = handle || promptsFileHandle;
+  if (!fileHandle) {
+    button.textContent = "Choose Where to Save Prompts";
+    return;
+  }
+
+  // Get filename from handle
+  const filename = fileHandle.name || "file";
+
+  // Extract folder name - try to get directory name from filename path if available
+  // Since FileSystemFileHandle doesn't expose full path, we'll use the filename
+  // If filename contains path separators, extract the folder name
+  let folderName = filename;
+  if (filename.includes("/")) {
+    const parts = filename.split("/");
+    folderName = parts[parts.length - 2] || filename;
+  } else if (filename.includes("\\")) {
+    const parts = filename.split("\\");
+    folderName = parts[parts.length - 2] || filename;
+  } else {
+    // If no path separators, use filename without extension as folder name
+    folderName = filename.replace(/\.[^/.]+$/, "");
+  }
+
+  // Truncate if longer than 7 characters
+  if (folderName.length > 7) {
+    folderName = folderName.substring(0, 7) + "...";
+  }
+
+  // Capitalize first letter and wrap in quotes
+  const capitalizedFolderName =
+    folderName.charAt(0).toUpperCase() + folderName.slice(1);
+  button.textContent = `Saving Prompts to "${capitalizedFolderName}"`;
+}
+
+/**
+ * Merges prompts from localStorage into the file
+ * Adds prompts from localStorage that don't exist in the file
+ * @returns {Promise<boolean>} True if merge was successful
+ */
+async function mergeLocalStoragePromptsToFile() {
+  if (!promptsFileHandle) {
+    return false;
+  }
+
+  try {
+    // Load prompts from both sources
+    const filePrompts = await readPromptsFromFile(promptsFileHandle);
+    const localStoragePrompts = loadPrompts();
+
+    // Find prompts in localStorage that aren't in the file
+    const filePromptIds = new Set(filePrompts.map(p => p.id));
+    const promptsToAdd = localStoragePrompts.filter(
+      p => !filePromptIds.has(p.id)
+    );
+
+    if (promptsToAdd.length > 0) {
+      // Merge: file prompts + new prompts from localStorage
+      const mergedPrompts = [...filePrompts, ...promptsToAdd];
+      await writePromptsToFile(promptsFileHandle, mergedPrompts);
+      // Update localStorage with merged prompts
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(mergedPrompts));
+      showNotification(
+        `Transferred ${promptsToAdd.length} prompt${
+          promptsToAdd.length !== 1 ? "s" : ""
+        } from browser to file!`,
+        "success"
+      );
+      return true;
+    }
+    return false;
+  } catch (error) {
+    console.error("Error merging prompts:", error);
+    showNotification("Failed to merge prompts from browser.", "error");
+    return false;
+  }
+}
+
+// Then update loadPromptsFromFile (around line 381):
+
+/**
+ * Merges prompts from localStorage into the file
+ * Adds prompts from localStorage that don't exist in the file
+ * @returns {Promise<boolean>} True if merge was successful
+ */
+async function mergeLocalStoragePromptsToFile() {
+  if (!promptsFileHandle) {
+    return false;
+  }
+
+  try {
+    // Load prompts from both sources
+    const filePrompts = await readPromptsFromFile(promptsFileHandle);
+    const localStoragePrompts = loadPrompts();
+
+    // Find prompts in localStorage that aren't in the file
+    const filePromptIds = new Set(filePrompts.map(p => p.id));
+    const promptsToAdd = localStoragePrompts.filter(
+      p => !filePromptIds.has(p.id)
+    );
+
+    if (promptsToAdd.length > 0) {
+      // Merge: file prompts + new prompts from localStorage
+      const mergedPrompts = [...filePrompts, ...promptsToAdd];
+      await writePromptsToFile(promptsFileHandle, mergedPrompts);
+      // Update localStorage with merged prompts
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(mergedPrompts));
+      showNotification(
+        `Transferred ${promptsToAdd.length} prompt${
+          promptsToAdd.length !== 1 ? "s" : ""
+        } from browser to file!`,
+        "success"
+      );
+      return true;
+    }
+    return false;
+  } catch (error) {
+    console.error("Error merging prompts:", error);
+    showNotification("Failed to merge prompts from browser.", "error");
+    return false;
   }
 }
 
@@ -381,10 +524,33 @@ function loadPrompts() {
 async function loadPromptsFromFile() {
   try {
     if (promptsFileHandle) {
-      const prompts = await readPromptsFromFile(promptsFileHandle);
+      const filePrompts = await readPromptsFromFile(promptsFileHandle);
+
+      // Check if there are prompts in localStorage that aren't in the file
+      const localStoragePrompts = loadPrompts();
+      const filePromptIds = new Set(filePrompts.map(p => p.id));
+      const promptsToAdd = localStoragePrompts.filter(
+        p => !filePromptIds.has(p.id)
+      );
+
+      if (promptsToAdd.length > 0) {
+        // Merge prompts from localStorage into file
+        const mergedPrompts = [...filePrompts, ...promptsToAdd];
+        await writePromptsToFile(promptsFileHandle, mergedPrompts);
+        // Update localStorage with merged prompts
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(mergedPrompts));
+        showNotification(
+          `Transferred ${promptsToAdd.length} prompt${
+            promptsToAdd.length !== 1 ? "s" : ""
+          } from browser to file!`,
+          "success"
+        );
+        return migratePrompts(mergedPrompts);
+      }
+
       // Sync to localStorage for synchronous access
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(prompts));
-      return migratePrompts(prompts);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(filePrompts));
+      return migratePrompts(filePrompts);
     }
     return loadPrompts();
   } catch (error) {
@@ -397,7 +563,7 @@ async function savePrompts(prompts) {
   try {
     // Always save to localStorage for synchronous access
     localStorage.setItem(STORAGE_KEY, JSON.stringify(prompts));
-    
+
     // Also save to file system if handle exists
     if (promptsFileHandle) {
       try {
@@ -3132,7 +3298,9 @@ async function importData(file, mergeStrategy = "merge") {
     }
 
     // Step 5: Load existing data
-    const existingPrompts = loadPrompts();
+    const existingPrompts = promptsFileHandle
+      ? await loadPromptsFromFile()
+      : loadPrompts();
     const existingNotes = loadNotes();
 
     // Step 6: Check for duplicates
@@ -3854,9 +4022,11 @@ if (importInput) {
 (async function initFileSystemStorage() {
   try {
     // Try to load existing file handle from IndexedDB
-    promptsFileHandle = await loadFileHandle('prompts');
+    promptsFileHandle = await loadFileHandle("prompts");
     if (promptsFileHandle) {
       console.log("File handle loaded from IndexedDB");
+      // Update button text to show save location
+      updateSaveLocationButtonText();
       // Load prompts from file and sync to localStorage
       await loadPromptsFromFile();
       // Re-render to show file-loaded prompts
