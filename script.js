@@ -2,6 +2,12 @@ const STORAGE_KEY = "promptLibrary";
 const NOTES_STORAGE_KEY = "promptNotesData";
 const CATEGORIES_STORAGE_KEY = "promptCategories";
 const TOOLTIP_PREFERENCES_KEY = "promptTypeTooltipPreferences";
+const FILE_HANDLE_DB_NAME = "promptLibraryFileHandles";
+const FILE_HANDLE_DB_VERSION = 1;
+
+// File System Access API state
+let promptsFileHandle = null;
+let fileHandleDB = null;
 
 // Default categories
 const DEFAULT_CATEGORIES = ["General", "Toolbox", "Web-React"];
@@ -112,80 +118,295 @@ let selectedType = null;
 let currentSearchQuery = "";
 let promptToExpand = null; // Track which prompt should be expanded after render
 
-function loadPrompts() {
+// ============================================================================
+// File System Storage Functions
+// ============================================================================
+
+/**
+ * Checks if File System Access API is supported
+ * @returns {boolean} True if supported
+ */
+function isFileSystemSupported() {
+  return 'showSaveFilePicker' in window && 'showOpenFilePicker' in window;
+}
+
+/**
+ * Initializes IndexedDB for storing file handles
+ * @returns {Promise<IDBDatabase>} Database instance
+ */
+async function initFileHandleDB() {
+  if (!('indexedDB' in window)) {
+    throw new Error('IndexedDB not supported');
+  }
+
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(FILE_HANDLE_DB_NAME, FILE_HANDLE_DB_VERSION);
+
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      fileHandleDB = request.result;
+      resolve(fileHandleDB);
+    };
+
+    request.onupgradeneeded = (event) => {
+      const db = event.target.result;
+      if (!db.objectStoreNames.contains('fileHandles')) {
+        db.createObjectStore('fileHandles');
+      }
+    };
+  });
+}
+
+/**
+ * Saves file handle to IndexedDB
+ * @param {string} key - Storage key
+ * @param {FileSystemFileHandle} handle - File handle
+ */
+async function saveFileHandle(key, handle) {
   try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    const prompts = stored ? JSON.parse(stored) : [];
-
-    // Migrate existing prompts to have "Toolbox" group if they don't have a group
-    // and "Standard" type if they don't have a type
-    // Also migrate to versioned structure if needed
-    let needsMigration = false;
-    const migratedPrompts = prompts.map(prompt => {
-      const updated = { ...prompt };
-
-      // Migrate group and type
-      if (!prompt.group) {
-        needsMigration = true;
-        updated.group = "Toolbox";
-      }
-      if (!prompt.type) {
-        needsMigration = true;
-        updated.type = "Standard";
-      }
-
-      // Migrate to versioned structure if not already versioned
-      if (!prompt.versions || !Array.isArray(prompt.versions)) {
-        needsMigration = true;
-        // Get legacy notes if they exist
-        const legacyNote = getNote(prompt.id);
-        const version = {
-          version: 1,
-          content: prompt.content || "",
-          title: prompt.title || "",
-          type: updated.type || "Standard",
-          metadata: prompt.metadata
-            ? {
-                ...prompt.metadata,
-                version: prompt.metadata.version || 1,
-              }
-            : null,
-          notes: legacyNote?.content || "",
-          createdAt: prompt.metadata?.createdAt || new Date().toISOString(),
-          updatedAt: prompt.metadata?.updatedAt || new Date().toISOString(),
-        };
-        updated.versions = [version];
-        updated.defaultVersion = 1;
-      }
-
-      // Ensure defaultVersion exists
-      if (
-        updated.defaultVersion === undefined ||
-        updated.defaultVersion === null
-      ) {
-        needsMigration = true;
-        updated.defaultVersion = updated.versions.length;
-      }
-
-      return updated;
+    if (!fileHandleDB) {
+      await initFileHandleDB();
+    }
+    const transaction = fileHandleDB.transaction(['fileHandles'], 'readwrite');
+    const store = transaction.objectStore('fileHandles');
+    return new Promise((resolve, reject) => {
+      const request = store.put(handle, key);
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
     });
+  } catch (error) {
+    console.error(`Error saving file handle for ${key}:`, error);
+  }
+}
 
-    // Save migrated prompts if migration was needed
-    if (needsMigration && migratedPrompts.length > 0) {
-      savePrompts(migratedPrompts);
-      return migratedPrompts;
+/**
+ * Loads file handle from IndexedDB
+ * @param {string} key - Storage key
+ * @returns {Promise<FileSystemFileHandle|null>} File handle or null
+ */
+async function loadFileHandle(key) {
+  try {
+    if (!fileHandleDB) {
+      await initFileHandleDB();
+    }
+    const transaction = fileHandleDB.transaction(['fileHandles'], 'readonly');
+    const store = transaction.objectStore('fileHandles');
+    return new Promise((resolve, reject) => {
+      const request = store.get(key);
+      request.onsuccess = () => resolve(request.result || null);
+      request.onerror = () => reject(request.error);
+    });
+  } catch (error) {
+    console.error(`Error loading file handle for ${key}:`, error);
+    return null;
+  }
+}
+
+/**
+ * Requests a file handle for saving prompts
+ * @returns {Promise<FileSystemFileHandle|null>} File handle or null
+ */
+async function requestPromptsFileHandle() {
+  if (!isFileSystemSupported()) {
+    showNotification("File System Access API is not supported in your browser. Using localStorage instead.", "warning");
+    return null;
+  }
+
+  try {
+    const handle = await window.showSaveFilePicker({
+      suggestedName: 'prompts.json',
+      types: [{
+        description: 'JSON files',
+        accept: { 'application/json': ['.json'] }
+      }]
+    });
+    promptsFileHandle = handle;
+    await saveFileHandle('prompts', handle);
+    return handle;
+  } catch (error) {
+    if (error.name !== 'AbortError') {
+      console.error("Error requesting file handle:", error);
+      showNotification("Failed to select file. Using localStorage instead.", "warning");
+    }
+    return null;
+  }
+}
+
+/**
+ * Reads prompts from file
+ * @param {FileSystemFileHandle} handle - File handle
+ * @returns {Promise<Array>} Array of prompts
+ */
+async function readPromptsFromFile(handle) {
+  try {
+    const file = await handle.getFile();
+    const text = await file.text();
+    const data = JSON.parse(text);
+    return data.prompts || data || [];
+  } catch (error) {
+    console.error("Error reading prompts from file:", error);
+    return [];
+  }
+}
+
+/**
+ * Writes prompts to file
+ * @param {FileSystemFileHandle} handle - File handle
+ * @param {Array} prompts - Array of prompts
+ * @returns {Promise<boolean>} True if successful
+ */
+async function writePromptsToFile(handle, prompts) {
+  try {
+    const writable = await handle.createWritable();
+    const data = {
+      version: "1.0.0",
+      exportTimestamp: new Date().toISOString(),
+      prompts: prompts
+    };
+    await writable.write(JSON.stringify(data, null, 2));
+    await writable.close();
+    return true;
+  } catch (error) {
+    console.error("Error writing prompts to file:", error);
+    return false;
+  }
+}
+
+/**
+ * Chooses a file location for saving prompts
+ */
+async function choosePromptsFileLocation() {
+  const handle = await requestPromptsFileHandle();
+  if (handle) {
+    showNotification("File location selected! Prompts will now save to your local file.", "success");
+    // Save current prompts to the new file
+    const prompts = loadPrompts();
+    if (prompts.length > 0) {
+      await writePromptsToFile(handle, prompts);
+    }
+    // Reload prompts to ensure sync
+    renderPrompts();
+  }
+}
+
+/**
+ * Migrates prompts to ensure they have required fields and structure
+ * @param {Array} prompts - Array of prompts to migrate
+ * @returns {Array} Migrated prompts
+ */
+function migratePrompts(prompts) {
+  // Migrate existing prompts to have "Toolbox" group if they don't have a group
+  // and "Standard" type if they don't have a type
+  // Also migrate to versioned structure if needed
+  let needsMigration = false;
+  const migratedPrompts = prompts.map(prompt => {
+    const updated = { ...prompt };
+
+    // Migrate group and type
+    if (!prompt.group) {
+      needsMigration = true;
+      updated.group = "Toolbox";
+    }
+    if (!prompt.type) {
+      needsMigration = true;
+      updated.type = "Standard";
     }
 
-    return prompts;
+    // Migrate to versioned structure if not already versioned
+    if (!prompt.versions || !Array.isArray(prompt.versions)) {
+      needsMigration = true;
+      // Get legacy notes if they exist
+      const legacyNote = getNote(prompt.id);
+      const version = {
+        version: 1,
+        content: prompt.content || "",
+        title: prompt.title || "",
+        type: updated.type || "Standard",
+        metadata: prompt.metadata
+          ? {
+              ...prompt.metadata,
+              version: prompt.metadata.version || 1,
+            }
+          : null,
+        notes: legacyNote?.content || "",
+        createdAt: prompt.metadata?.createdAt || new Date().toISOString(),
+        updatedAt: prompt.metadata?.updatedAt || new Date().toISOString(),
+      };
+      updated.versions = [version];
+      updated.defaultVersion = 1;
+    }
+
+    // Ensure defaultVersion exists
+    if (
+      updated.defaultVersion === undefined ||
+      updated.defaultVersion === null
+    ) {
+      needsMigration = true;
+      updated.defaultVersion = updated.versions.length;
+    }
+
+    return updated;
+  });
+
+  // Save migrated prompts if migration was needed
+  if (needsMigration && migratedPrompts.length > 0) {
+    savePrompts(migratedPrompts);
+    return migratedPrompts;
+  }
+
+  return prompts;
+}
+
+/**
+ * Loads prompts synchronously (for backward compatibility)
+ * Uses localStorage for immediate access, file system is used for saves
+ * @returns {Array} Array of prompts
+ */
+function loadPrompts() {
+  try {
+    // Load from localStorage (synchronous for backward compatibility)
+    const stored = localStorage.getItem(STORAGE_KEY);
+    const prompts = stored ? JSON.parse(stored) : [];
+    return migratePrompts(prompts);
   } catch (error) {
     console.error("Error loading prompts:", error);
     return [];
   }
 }
 
-function savePrompts(prompts) {
+/**
+ * Loads prompts from file system asynchronously
+ * @returns {Promise<Array>} Array of prompts
+ */
+async function loadPromptsFromFile() {
   try {
+    if (promptsFileHandle) {
+      const prompts = await readPromptsFromFile(promptsFileHandle);
+      // Sync to localStorage for synchronous access
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(prompts));
+      return migratePrompts(prompts);
+    }
+    return loadPrompts();
+  } catch (error) {
+    console.error("Error loading prompts from file:", error);
+    return loadPrompts();
+  }
+}
+
+async function savePrompts(prompts) {
+  try {
+    // Always save to localStorage for synchronous access
     localStorage.setItem(STORAGE_KEY, JSON.stringify(prompts));
+    
+    // Also save to file system if handle exists
+    if (promptsFileHandle) {
+      try {
+        await writePromptsToFile(promptsFileHandle, prompts);
+      } catch (error) {
+        console.error("Error saving to file:", error);
+        // Continue anyway since localStorage save succeeded
+      }
+    }
   } catch (error) {
     console.error("Error saving prompts:", error);
   }
@@ -3627,6 +3848,28 @@ if (exportBtn) {
 
 if (importInput) {
   importInput.addEventListener("change", handleImportFileSelect);
+}
+
+// File System Storage initialization and event listeners
+(async function initFileSystemStorage() {
+  try {
+    // Try to load existing file handle from IndexedDB
+    promptsFileHandle = await loadFileHandle('prompts');
+    if (promptsFileHandle) {
+      console.log("File handle loaded from IndexedDB");
+      // Load prompts from file and sync to localStorage
+      await loadPromptsFromFile();
+      // Re-render to show file-loaded prompts
+      renderPrompts();
+    }
+  } catch (error) {
+    console.error("Error initializing file system storage:", error);
+  }
+})();
+
+const chooseFileBtn = document.getElementById("choose-file-btn");
+if (chooseFileBtn) {
+  chooseFileBtn.addEventListener("click", choosePromptsFileLocation);
 }
 
 // ============================================================================
